@@ -231,7 +231,7 @@ server <- function(input, output, session) {
   # ========== Tab 1: Access vs Completion (Li Qi) ==========
   filtered_data <- reactive({
     d <- data[data$incomeLevel %in% input$incomeLevel, ]
-    d <- d[d$spendingPerPupil >= input$spendingRange[1] & 
+    d <- d[d$spendingPerPupil >= input$spendingRange[1] &
              d$spendingPerPupil <= input$spendingRange[2], ]
     d
   })
@@ -240,50 +240,86 @@ server <- function(input, output, session) {
     d <- filtered_data()
     if (nrow(d) < 2) return(NULL)
     
+    # Fit a simple linear model to get the slope
     model <- lm(completionRate ~ outOfSchool, data = d)
-    r_squared <- summary(model)$r.squared
-    slope <- coef(model)[2]
-    intercept <- coef(model)[1]
+    slope <- coef(model)[["outOfSchool"]]
     
     p <- ggplot(d, aes(x = outOfSchool, y = completionRate))
     
+    # Add regression line (visual trend only)
     if (input$showRegression) {
-      p <- p + geom_smooth(method = "lm", color = "#e63946", linetype = "dashed",
-                           fill = "#e63946", alpha = 0.15, se = TRUE)
+      p <- p + geom_smooth(
+        method  = "lm",
+        color   = "#e63946",
+        linetype = "dashed",
+        fill    = "#e63946",
+        alpha   = 0.15,
+        se      = TRUE
+      )
     }
     
+    # Points and encodings
     p <- p +
       geom_point(aes(size = spendingPerPupil, color = color), alpha = 0.8) +
       scale_color_identity() +
-      scale_size_continuous(range = c(4, 20),
-                            breaks = c(500, 5000, 10000),
-                            labels = c("$500", "$5.0k", "$10.0k"),
-                            name = "Spending per pupil:") +
-      scale_x_continuous(labels = function(x) paste0(x, "%"), limits = c(0, 25)) +
-      scale_y_continuous(labels = function(y) paste0(y, "%"), limits = c(50, 100)) +
-      labs(x = "Out-of-school Rate (% of primary-age children)",
-           y = "Primary Completion Rate (%)")
+      scale_size_continuous(
+        range  = c(4, 20),
+        breaks = c(500, 5000, 10000),
+        labels = c("$500", "$5.0k", "$10.0k"),
+        name   = "Spending per pupil:"
+      ) +
+      scale_x_continuous(
+        labels = function(x) paste0(x, "%"),
+        limits = c(0, 25)
+      ) +
+      scale_y_continuous(
+        labels = function(y) paste0(y, "%"),
+        limits = c(50, 100)
+      ) +
+      labs(
+        x = "Out-of-school Rate (% of primary-age children)",
+        y = "Learning Poverty Rate (%)"
+      )
     
+    # Region labels
     if (input$showLabels) {
-      p <- p + geom_text(aes(label = id), vjust = -1.5, size = 3, fontface = "bold")
+      p <- p + geom_text(
+        aes(label = id),
+        vjust = -1.5,
+        size = 3,
+        fontface = "bold"
+      )
     }
     
+    # Friendly explanation instead of formula + R²
     if (input$showRegression) {
+      slope_pp <- abs(round(slope, 1))
+      
       p <- p +
-        annotate("text", x = 18, y = 98,
-                 label = paste0("y = ", round(slope, 2), "x + ", round(intercept, 1)),
-                 color = "#e63946", fontface = "italic", hjust = 0, size = 4) +
-        annotate("text", x = 18, y = 95,
-                 label = paste0("R² = ", round(r_squared, 3)),
-                 color = "#e63946", fontface = "italic", hjust = 0, size = 4) +
-        annotate("label", x = 0.5, y = 54,
-                 label = paste0("Strong Correlation:\nEach 1pp increase in out-of-school\nrate associates with ",
-                                abs(round(slope, 1)), "pp decrease in\ncompletion (R²=", round(r_squared, 2), ")."),
-                 fill = "#fff3cd", color = "#856404", size = 3, hjust = 0, label.size = 0.5)
+        annotate(
+          "label",
+          x = 0.5, y = 54,
+          label = paste0(
+            "How to read this line:\n",
+            "In this dataset, regions where more children are\n",
+            "out of school tend to have lower completion rates.\n",
+            "Each extra 1 percentage point out of school is linked\n",
+            "with about ", slope_pp,
+            " percentage points lower completion."
+          ),
+          fill       = "#fff3cd",
+          color      = "#856404",
+          size       = 3,
+          hjust      = 0,
+          label.size = 0.5
+        )
     }
     
     p + theme_minimal() +
-      theme(axis.title = element_text(size = 11), legend.position = "right")
+      theme(
+        axis.title      = element_text(size = 11),
+        legend.position = "right"
+      )
   })
   
   # ========== Tab 2: Spending vs Learning Poverty ==========
