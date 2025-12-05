@@ -400,19 +400,7 @@ server <- function(input, output, session) {
           duration = 800,
           easing = "cubic-in-out"
         ),
-        annotations = list(
-          list(
-            text = "Bar width encodes education spending as % of GDP; bar height encodes learning poverty. Color indicates severity of learning poverty. Click bars to compare.",
-            showarrow = FALSE,
-            xref = "paper",
-            yref = "paper",
-            x = 0.5,
-            y = -0.12,
-            xanchor = "center",
-            yanchor = "top",
-            font = list(size = 10)
-          )
-        )
+        annotations = list()
       ) |>
       config(
         displayModeBar = TRUE,
@@ -453,7 +441,7 @@ server <- function(input, output, session) {
   # Display comparison between selected bars
   output$bar_comparison <- renderText({
     if (is.null(selected_bars$bar1_name)) {
-      return("<em style='color: #6c757d;'>Click on two bars to compare their learning poverty values.</em>")
+      return("<em style='color: #4a90e2; font-weight: 500;'>Double click to select and cancel to compare two regions.</em>")
     }
     
     dat <- selected_data()
