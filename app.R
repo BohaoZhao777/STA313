@@ -138,7 +138,8 @@ ui <- navbarPage(
     div(
       class = "fade-in",
       titlePanel("Key Regions Summary"),
-      p("A compact KPI card panel that summarizes the current selection from Figure 1: who invests the most, where learning deprivation is most acute, and where completion/attainment is weakest."),
+      p("A compact KPI card panel that summarizes the current selection from Figure 1: who invests the most, where learning deprivation is most acute, and where completion/attainment is weakest.
+        (Figure 3 is driven by the same interactive filter panel as Figure 1, so the regions highlighted in the KPI cards always reflect the user’s current country and spending selections.)"),
       fluidRow(
         column(
           width = 4,
