@@ -337,11 +337,17 @@ server <- function(input, output, session) {
     # Create plot using plotly native API
     # Color function for learning poverty
     get_color <- function(lp) {
-      ratio <- (lp - lp_min) / (lp_max - lp_min)
-      ratio <- max(0, min(1, ratio))  # Clamp between 0 and 1
-      r <- round(58 + (230 - 58) * ratio)   # 58 (0x3a) to 230 (0xe6)
-      g <- round(134 + (57 - 134) * ratio)  # 134 (0x86) to 57 (0x39)
-      b <- round(255 + (70 - 255) * ratio)  # 255 (0xff) to 70 (0x46)
+      # Handle case when there's only one region (lp_min == lp_max)
+      if (lp_max - lp_min < 0.0001) {
+        # Use middle color when all values are the same
+        ratio <- 0.5
+      } else {
+        ratio <- (lp - lp_min) / (lp_max - lp_min)
+        ratio <- max(0, min(1, ratio))  # Clamp between 0 and 1
+      }
+      r <- as.integer(round(58 + (230 - 58) * ratio))   # 58 (0x3a) to 230 (0xe6)
+      g <- as.integer(round(134 + (57 - 134) * ratio))  # 134 (0x86) to 57 (0x39)
+      b <- as.integer(round(255 + (70 - 255) * ratio))  # 255 (0xff) to 70 (0x46)
       sprintf("rgb(%d,%d,%d)", r, g, b)
     }
     
@@ -500,11 +506,17 @@ server <- function(input, output, session) {
     lp_min <- min(dat$learningPoverty)
     lp_max <- max(dat$learningPoverty)
     get_color <- function(lp) {
-      ratio <- (lp - lp_min) / (lp_max - lp_min)
-      ratio <- max(0, min(1, ratio))
-      r <- round(58 + (230 - 58) * ratio)
-      g <- round(134 + (57 - 134) * ratio)
-      b <- round(255 + (70 - 255) * ratio)
+      # Handle case when there's only one region (lp_min == lp_max)
+      if (lp_max - lp_min < 0.0001) {
+        # Use middle color when all values are the same
+        ratio <- 0.5
+      } else {
+        ratio <- (lp - lp_min) / (lp_max - lp_min)
+        ratio <- max(0, min(1, ratio))
+      }
+      r <- as.integer(round(58 + (230 - 58) * ratio))
+      g <- as.integer(round(134 + (57 - 134) * ratio))
+      b <- as.integer(round(255 + (70 - 255) * ratio))
       sprintf("rgb(%d,%d,%d)", r, g, b)
     }
     

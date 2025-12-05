@@ -10,7 +10,9 @@ options(shiny.autoreload = TRUE)
 
 # 运行应用（支持热更新）
 # 修改 app.R 文件后，刷新浏览器即可看到更新
+# 如果遇到问题，尝试指定 appDir 参数
 runApp(
+  appDir = getwd(),
   port = 3838,
   host = "0.0.0.0",
   launch.browser = TRUE
