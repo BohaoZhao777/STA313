@@ -1,93 +1,100 @@
 library(shiny)
 library(tidyverse)
-library(ggiraph)      
-library(bslib)        
-library(countrycode)  
-library(janitor)      
+library(ggiraph)
+library(bslib)
+library(countrycode)
+library(janitor)
+
+options(shiny.sanitize.errors = FALSE)
 
 # =======================================================
-# 1. DATA PROCESSING (Run once on startup)
+# 1. ROBUST DATA PROCESSING
 # =======================================================
+
+clean_numeric <- function(x) {
+  as.numeric(gsub("[^0-9.-]", "", as.character(x)))
+}
 
 # Load Data
-exp_df <- read_csv("19-expenditure.csv", show_col_types = FALSE)
-edu_df <- read_csv("11-education-countries.csv", show_col_types = FALSE)
+exp_df <- read_csv("19-expenditure.csv", na = c("", "-", "..", "n/a"), show_col_types = FALSE)
+edu_df <- read_csv("11-education-countries.csv", na = c("", "-", "..", "n/a"), show_col_types = FALSE)
 
-# Clean Expenditure Data
+# --- Process Expenditure Data ---
 exp_clean <- exp_df %>%
   clean_names() %>%
-  mutate(education_expenditure = as.numeric(na_if(education_expenditure, "-")))
-
-edu_clean <- edu_df %>%
-  # Rename columns manually by index to avoid confusion
-  rename(
-    country = 1,
-    oos_primary = 2,
-    oos_lower_sec = 3,
-    oos_upper_sec = 4,
-    comp_primary = 5,
-    comp_lower_sec = 6,
-    comp_upper_sec = 7,
-    learning_poverty = 14
+  rename(country_raw = 1) %>% 
+  mutate(
+    # Create standardized ISO3 code (e.g., "USA", "CHN")
+    iso_code = countrycode(country_raw, origin = "country.name", destination = "iso3c"),
+    education_expenditure = clean_numeric(education_expenditure)
   ) %>%
-  # Convert "-" to NA and ensure numeric
-  mutate(across(c(oos_primary, comp_primary, learning_poverty), 
-                ~as.numeric(na_if(., "-")))) %>%
-  select(country, oos_primary, comp_primary, learning_poverty)
+  filter(!is.na(iso_code), !is.na(education_expenditure))
 
-# Merge Datasets
+# --- Process Education Data ---
+edu_clean <- edu_df %>%
+  # 
+  select(
+    country_raw = 1,
+    oos_primary = starts_with("Primary education"), 
+    learning_poverty = contains("Learning_Poverty_Total")
+  ) %>%
+  mutate(
+    iso_code = countrycode(country_raw, origin = "country.name", destination = "iso3c"),
+    learning_poverty = clean_numeric(learning_poverty)
+  ) %>%
+  filter(!is.na(iso_code))
+
+# --- Merge and Create Final Dataset ---
 final_df <- exp_clean %>%
-  inner_join(edu_clean, by = "country") %>%
-  # Add Region automatically using the country name
-  mutate(region = countrycode(country, origin = "country.name", destination = "region")) %>%
-  # Handle cases where region is not found (optional)
-  filter(!is.na(education_expenditure), !is.na(learning_poverty)) 
+  # Inner Join on ISO CODE, not name. This fixes spelling mismatches.
+  inner_join(edu_clean, by = "iso_code") %>%
+  mutate(
+    # Get a clean country name and region from the standardized code
+    country = countrycode(iso_code, origin = "iso3c", destination = "country.name"),
+    region = countrycode(iso_code, origin = "iso3c", destination = "region")
+  ) %>%
+  filter(!is.na(learning_poverty), !is.na(region))
 
+# --- CONSOLE REPORT (Look at your RStudio Console) ---
+cat("\n================ DATA REPORT ================\n")
+cat("Countries in Expenditure File: ", nrow(exp_clean), "\n")
+cat("Countries in Education File:   ", nrow(edu_clean), "\n")
+cat("Countries Successfully Merged: ", nrow(final_df), "\n")
+cat("Regions Found: ", paste(unique(final_df$region), collapse = ", "), "\n")
+cat("=============================================\n")
 
 # =======================================================
-# 2. UI (USER INTERFACE)
+# 2. UI
 # =======================================================
 
 ui <- page_sidebar(
-  theme = bs_theme(bootswatch = "minty"), # Clean, professional theme
-  title = "Education Efficiency Dashboard",
+  theme = bs_theme(bootswatch = "minty"), 
+  title = "Global Education Efficiency",
   
   sidebar = sidebar(
-    title = "Controls",
-    
-    # Filter by Region
-    selectInput(
-      "region_select", 
-      "Select Region:",
-      choices = c("All Regions", sort(unique(final_df$region))),
-      selected = "All Regions"
-    ),
-    
-    # Toggle Trend Line
-    checkboxInput("show_trend", "Show Efficiency Trend", value = TRUE),
-    
-    # Analytical Note (Dynamic)
+    selectInput("region_select", "Select Region:",
+                choices = c("All Regions", sort(unique(final_df$region))),
+                selected = "All Regions"),
+    checkboxInput("show_trend", "Show Trend Line", value = TRUE),
     hr(),
-    h5("Insight:"),
-    textOutput("insight_text")
+    helpText("Hover over points to see country details.")
   ),
   
-  # Main Layout
   card(
-    card_header("Spending Efficiency: Expenditure vs. Learning Poverty"),
-    girafeOutput("efficiency_plot", height = "500px"),
-    card_footer("Note: 'Efficient' countries are in the bottom-left (Low Spend, Low Poverty).")
+    card_header("Government Expenditure vs. Learning Poverty"),
+    girafeOutput("efficiency_plot", height = "550px")
   )
 )
 
 # =======================================================
-# 3. SERVER LOGIC
+# 3. SERVER
 # =======================================================
 
 server <- function(input, output) {
   
   # Reactive Data Filter
   filtered_data <- reactive({
+    req(input$region_select)
     if (input$region_select == "All Regions") {
       final_df
     } else {
@@ -95,63 +102,54 @@ server <- function(input, output) {
     }
   })
   
-  # Render Interactive Plot
   output$efficiency_plot <- renderGirafe({
+    dat <- filtered_data()
     
-    # Base ggplot
-    p <- ggplot(filtered_data(), aes(
+    # Validation to prevent crashes if a region is empty
+    validate(
+      need(nrow(dat) > 0, "No data available for this region.")
+    )
+    
+    # Dynamic Title
+    plot_title <- if(input$region_select == "All Regions") "Global Overview" else input$region_select
+    
+    p <- ggplot(dat, aes(
       x = education_expenditure, 
       y = learning_poverty, 
       color = region,
-      # Tooltip is crucial for interactivity grade
-      tooltip = paste0(
-        "<b>", country, "</b><br>",
-        "Spending: ", education_expenditure, "%<br>",
-        "Learning Poverty: ", learning_poverty, "%"
-      ),
-      data_id = country
+      tooltip = paste0("<b>", country, "</b><br>",
+                       "Region: ", region, "<br>",
+                       "Spend: ", round(education_expenditure, 1), "%<br>",
+                       "Poverty: ", round(learning_poverty, 1), "%"),
+      data_id = iso_code
     )) +
-      # Use interactive points
-      geom_point_interactive(size = 4, alpha = 0.7) +
-      
-      # Labels & Style
+      geom_point_interactive(size = 4, alpha = 0.8) +
+      scale_color_viridis_d(option = "turbo") +
       labs(
-        x = "Govt Expenditure on Education (%)",
-        y = "Learning Poverty Rate (%)",
-        title = paste("Efficiency Analysis -", input$region_select)
+        title = plot_title,
+        subtitle = "Does spending more reduce learning poverty?",
+        x = "Govt Expenditure (% of GDP)",
+        y = "Learning Poverty Rate (%)"
       ) +
-      scale_color_viridis_d(option = "turbo") + # Professional color palette
       theme_minimal(base_size = 14) +
-      theme(legend.position = "bottom")
+      theme(
+        legend.position = "bottom",
+        plot.title = element_text(face = "bold"),
+        panel.grid.minor = element_blank()
+      )
     
-    # Add Trend Line if checked
-    if (input$show_trend) {
-      p <- p + geom_smooth(method = "lm", se = FALSE, color = "gray50", linetype = "dashed")
+    if (input$show_trend && nrow(dat) > 2) {
+      p <- p + geom_smooth(method = "lm", se = FALSE, color = "black", linetype = "dashed", alpha=0.5)
     }
     
-    # Render with Girafe options
     girafe(
       ggobj = p,
       options = list(
-        opts_hover(css = "fill:black;stroke:black;r:6pt;"), # Highlight on hover
-        opts_selection(type = "single"),
-        opts_tooltip(css = "background-color:white;color:black;padding:5px;border-radius:5px;")
+        opts_hover(css = "fill:black;stroke:black;r:6pt;"),
+        opts_selection(type = "single")
       )
-    )
-  })
-  
-  # Dynamic Insight Text
-  output$insight_text <- renderText({
-    data <- filtered_data()
-    avg_pov <- round(mean(data$learning_poverty, na.rm = TRUE), 1)
-    
-    paste0(
-      "In ", input$region_select, 
-      ", the average Learning Poverty rate is ", avg_pov, "%. ",
-      "Countries below the dashed line are achieving better outcomes relative to their spending."
     )
   })
 }
 
-# Run App
 shinyApp(ui, server)
