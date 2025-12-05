@@ -36,6 +36,9 @@ regions <- data |>
 # Color mapping
 region_colors <- setNames(regions$color, regions$name)
 
+spend_min <- floor(min(data$spendingPerPupil, na.rm = TRUE) / 1000) * 1000
+spend_max <- ceiling(max(data$spendingPerPupil, na.rm = TRUE) / 1000) * 1000
+
 ## ---------- Shiny UI: Tabbed interface for multiple visualizations ----------
 
 ui <- navbarPage(
@@ -71,28 +74,28 @@ ui <- navbarPage(
   # Tab 1: Access vs Completion (Li Qi)
   tabPanel(
     "Access vs Completion",
-  titlePanel("Access vs Completion"),
-  p("Do higher out-of-school rates coincide with lower completion? How strong is the relationship?"),
-  
-  sidebarLayout(
-    sidebarPanel(
-      width = 3,
-      checkboxGroupInput("incomeLevel", "Filter by Income Level:",
-                         choices = unique(data$incomeLevel),
-                         selected = unique(data$incomeLevel)),
-      sliderInput("spendingRange", "Spending per Pupil ($):",
-                  min = 0, max = 15000,
-                  value = c(0, 15000), step = 500,
-                  pre = "$", sep = ","),
-      checkboxInput("showRegression", "Show Regression Line", value = TRUE),
-      checkboxInput("showLabels", "Show Region Labels", value = TRUE)
-    ),
+    titlePanel("Access vs Completion"),
+    p("Do higher out-of-school rates coincide with lower completion? How strong is the relationship?"),
     
-    mainPanel(
-      width = 9,
-      plotOutput("scatterPlot", height = "500px")
+    sidebarLayout(
+      sidebarPanel(
+        width = 3,
+        checkboxGroupInput("incomeLevel", "Filter by Income Level:",
+                           choices = unique(data$incomeLevel),
+                           selected = unique(data$incomeLevel)),
+        sliderInput("spendingRange", "Spending per Pupil ($):",
+                    min = 0, max = 15000,
+                    value = c(0, 15000), step = 500,
+                    pre = "$", sep = ","),
+        checkboxInput("showRegression", "Show Regression Line", value = TRUE),
+        checkboxInput("showLabels", "Show Region Labels", value = TRUE)
+      ),
+      
+      mainPanel(
+        width = 9,
+        plotOutput("scatterPlot", height = "500px")
+      )
     )
-  )
   ),
   
   # Tab 2: Spending vs Learning Poverty
@@ -138,23 +141,60 @@ ui <- navbarPage(
     div(
       class = "fade-in",
       titlePanel("Key Regions Summary"),
-      p("A compact KPI card panel that summarizes the current selection from Figure 1: who invests the most, where learning deprivation is most acute, and where completion/attainment is weakest.
-        (Figure 3 is driven by the same interactive filter panel as Figure 1, so the regions highlighted in the KPI cards always reflect the user’s current country and spending selections.)"),
-      fluidRow(
-        column(
-          width = 4,
+      sidebarLayout(
+        sidebarPanel(
+          width = 3,
+          helpText(
+            "Use these controls to customise the KPI (Key Performance Indicator) panels in this tab only."
+          ),
+          checkboxGroupInput(
+            "kpi_income",
+            "Income level:",
+            choices  = sort(unique(data$incomeLevel)),
+            selected = sort(unique(data$incomeLevel))
+          ),
+          sliderInput(
+            "kpi_spend_range",
+            "Spending per pupil (USD):",
+            min   = spend_min,
+            max   = spend_max,
+            value = c(spend_min, spend_max),
+            step  = 500,
+            pre   = "$",
+            sep   = ","
+          ),
+          sliderInput(
+            "kpi_top_n",
+            "Number of regions in each panel:",
+            min   = 3,
+            max   = 10,
+            value = 5,
+            step  = 1
+          )
+        ),
+        mainPanel(
+          width = 9,
+          p("A compact KPI-style panel that summarizes the current selection: who spends the most per pupil, where learning poverty is most acute, and where completion is weakest."),
+          
+          # Block 1: Highest Expenditure
           h3("Highest Expenditure"),
-          plotOutput("kpi_spend", height = "260px")
-        ),
-        column(
-          width = 4,
+          plotOutput("kpi_spend", height = "260px"),
+          br(), hr(),
+          
+          # Block 2: Highest Learning Poverty
           h3("Highest Learning Poverty"),
-          plotOutput("kpi_poverty", height = "260px")
-        ),
-        column(
-          width = 4,
+          plotOutput("kpi_poverty", height = "260px"),
+          br(), hr(),
+          
+          # Block 3: Lowest Completion
           h3("Lowest Completion"),
-          plotOutput("kpi_completion", height = "260px")
+          plotOutput("kpi_completion", height = "260px"),
+          br(),
+          
+          div(
+            style = "padding: 10px; background-color: #f8f9fa; border-radius: 6px; border: 1px solid #dee2e6;",
+            htmlOutput("kpi_summary")
+          )
         )
       )
     )
@@ -164,15 +204,15 @@ ui <- navbarPage(
 ## ---------- Shiny server ----------
 
 server <- function(input, output, session) {
-
+  
   # ========== Tab 1: Access vs Completion (Li Qi) ==========
   filtered_data <- reactive({
     d <- data[data$incomeLevel %in% input$incomeLevel, ]
     d <- d[d$spendingPerPupil >= input$spendingRange[1] & 
-           d$spendingPerPupil <= input$spendingRange[2], ]
+             d$spendingPerPupil <= input$spendingRange[2], ]
     d
   })
-
+  
   output$scatterPlot <- renderPlot({
     d <- filtered_data()
     if (nrow(d) < 2) return(NULL)
@@ -320,15 +360,15 @@ server <- function(input, output, session) {
       }
     }
   }, ignoreNULL = TRUE, ignoreInit = TRUE)
-
+  
   output$region_plot <- renderPlotly({
     dat <- selected_data()
     req(nrow(dat) > 0)
-
+    
     # Map spendingGDP to bar width (0.3~0.9)
     dat <- dat |>
       mutate(width = rescale(spendingGDP, to = c(0.3, 0.9)))
-
+    
     rects <- dat |>
       mutate(
         xmin = region_index - width / 2,
@@ -336,7 +376,7 @@ server <- function(input, output, session) {
         ymin = 0,
         ymax = learningPoverty
       )
-
+    
     # Tooltip text: region name + learning poverty + spending%
     rects <- rects |>
       mutate(
@@ -347,7 +387,7 @@ server <- function(input, output, session) {
           "<br><i>Click to select for comparison</i>"
         )
       )
-
+    
     # Get the range of learning poverty for color scale
     lp_min <- min(rects$learningPoverty)
     lp_max <- max(rects$learningPoverty)
@@ -361,7 +401,7 @@ server <- function(input, output, session) {
       mutate(
         is_selected = name %in% selected_names
       )
-
+    
     # Create plot using plotly native API
     # Color function for learning poverty
     get_color <- function(lp) {
@@ -605,15 +645,40 @@ server <- function(input, output, session) {
   
   # ========== Tab 3: Key Regions Summary (your Figure 3) ==========
   
+  # Reactive data for Tab 3 only
+  kpi_data <- reactive({
+    d <- data
+    
+    # Filter by income level chosen in Tab 3
+    if (!is.null(input$kpi_income) && length(input$kpi_income) > 0) {
+      d <- d[d$incomeLevel %in% input$kpi_income, ]
+    } else {
+      # No income level selected: return empty
+      d <- d[0, ]
+    }
+    
+    # Filter by spending per pupil range
+    if (!is.null(input$kpi_spend_range)) {
+      d <- d[
+        d$spendingPerPupil >= input$kpi_spend_range[1] &
+          d$spendingPerPupil <= input$kpi_spend_range[2],
+      ]
+    }
+    
+    d
+  })
+  
   # Highest Expenditure
   output$kpi_spend <- renderPlot({
-    d <- filtered_data() |>
+    d <- kpi_data() |>
       filter(!is.na(spendingPerPupil)) |>
-      arrange(desc(spendingPerPupil)) |>
-      slice_head(n = 5)
+      arrange(desc(spendingPerPupil))
     req(nrow(d) > 0)
     
+    top_n <- if (!is.null(input$kpi_top_n)) input$kpi_top_n else 5
+    
     d <- d |>
+      slice_head(n = top_n) |>
       mutate(name = factor(name, levels = rev(name)))
     
     ggplot(d, aes(x = spendingPerPupil, y = name, fill = color)) +
@@ -621,35 +686,36 @@ server <- function(input, output, session) {
       scale_fill_identity() +
       geom_text(
         aes(label = scales::comma(spendingPerPupil, accuracy = 1)),
-        hjust = -0.15,             
+        hjust = -0.15,
         color = "black",
-        size = 2.5,
+        size = 3,
         fontface = "bold"
       ) +
       scale_x_continuous(
         labels = scales::comma,
-        expand = expansion(mult = c(0, 0.30)) 
+        expand = expansion(mult = c(0, 0.30))
       ) +
       labs(x = "Spending per pupil (USD)", y = NULL) +
       theme_minimal(base_size = 11) +
       theme(
         panel.grid.major.y = element_blank(),
-        panel.grid.minor = element_blank(),
-        axis.title.y = element_blank(),
-        plot.margin = margin(5, 30, 5, 5) 
+        panel.grid.minor   = element_blank(),
+        axis.title.y       = element_blank(),
+        plot.margin        = margin(5, 30, 5, 5)
       )
   })
   
-  
   # Highest Learning Poverty
   output$kpi_poverty <- renderPlot({
-    d <- filtered_data() |>
+    d <- kpi_data() |>
       filter(!is.na(learningPoverty)) |>
-      arrange(desc(learningPoverty)) |>
-      slice_head(n = 5)
+      arrange(desc(learningPoverty))
     req(nrow(d) > 0)
     
+    top_n <- if (!is.null(input$kpi_top_n)) input$kpi_top_n else 5
+    
     d <- d |>
+      slice_head(n = top_n) |>
       mutate(name = factor(name, levels = rev(name)))
     
     ggplot(d, aes(x = learningPoverty, y = name, fill = color)) +
@@ -668,21 +734,23 @@ server <- function(input, output, session) {
       theme_minimal(base_size = 11) +
       theme(
         panel.grid.major.y = element_blank(),
-        panel.grid.minor = element_blank(),
-        axis.title.y = element_blank(),
-        plot.margin = margin(5, 20, 5, 5)
+        panel.grid.minor   = element_blank(),
+        axis.title.y       = element_blank(),
+        plot.margin        = margin(5, 20, 5, 5)
       )
   })
   
   # Lowest Completion
   output$kpi_completion <- renderPlot({
-    d <- filtered_data() |>
+    d <- kpi_data() |>
       filter(!is.na(completionRate)) |>
-      arrange(completionRate) |>
-      slice_head(n = 5)
+      arrange(completionRate)
     req(nrow(d) > 0)
     
+    top_n <- if (!is.null(input$kpi_top_n)) input$kpi_top_n else 5
+    
     d <- d |>
+      slice_head(n = top_n) |>
       mutate(name = factor(name, levels = rev(name)))
     
     ggplot(d, aes(x = completionRate, y = name, fill = color)) +
@@ -701,10 +769,37 @@ server <- function(input, output, session) {
       theme_minimal(base_size = 11) +
       theme(
         panel.grid.major.y = element_blank(),
-        panel.grid.minor = element_blank(),
-        axis.title.y = element_blank(),
-        plot.margin = margin(5, 20, 5, 5)
+        panel.grid.minor   = element_blank(),
+        axis.title.y       = element_blank(),
+        plot.margin        = margin(5, 20, 5, 5)
       )
+  })
+  
+  # Textual summary for Tab 3 KPIs
+  output$kpi_summary <- renderText({
+    d <- kpi_data() |>
+      filter(
+        !is.na(spendingPerPupil),
+        !is.na(learningPoverty),
+        !is.na(completionRate)
+      )
+    
+    if (nrow(d) == 0) {
+      return("<em style='color:#6c757d;'>No regions match the current filters. Try relaxing the filters in the sidebar.</em>")
+    }
+    
+    spend_row      <- d[which.max(d$spendingPerPupil), ]
+    poverty_row    <- d[which.max(d$learningPoverty), ]
+    completion_row <- d[which.min(d$completionRate), ]
+    
+    paste0(
+      "<strong>", spend_row$name, "</strong> spends the most per pupil (about ",
+      scales::comma(round(spend_row$spendingPerPupil, 0)), " USD). ",
+      "<strong>", poverty_row$name, "</strong> faces the highest learning poverty (around ",
+      round(poverty_row$learningPoverty, 1), "% of children). ",
+      "<strong>", completion_row$name, "</strong> has the weakest completion rate (about ",
+      round(completion_row$completionRate, 1), "%)."
+    )
   })
 }
 
