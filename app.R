@@ -8,6 +8,9 @@ if (!require("shinycssloaders", quietly = TRUE)) {
 if (!require("shinyjs", quietly = TRUE)) {
   install.packages("shinyjs", repos = "https://cloud.r-project.org")
 }
+if (!require("ggrepel", quietly = TRUE)) {
+  install.packages("ggrepel", repos = "https://cloud.r-project.org")
+}
 
 library(shiny)
 library(jsonlite)
@@ -17,6 +20,7 @@ library(scales)
 library(plotly)
 library(shinycssloaders)
 library(shinyjs)
+library(ggrepel)
 
 ## ---------- Read JSON: region-level data ----------
 
@@ -135,7 +139,26 @@ ui <- navbarPage(
     )
   ),
   
-  # Tab 3: Key Regions Summary (Figure 3)
+  # Tab 3: Spending Efficiency
+  tabPanel(
+    "Spending Efficiency",
+    div(
+      class = "fade-in",
+      titlePanel("Comparing learning outcomes at similar spending levels"),
+      p("Each point is a region; efficiency is shown in the hover as the gap vs expected completion."),
+      mainPanel(
+        width = 12,
+        withSpinner(
+          plotlyOutput("spending_efficiency_plot", height = "600px"),
+          type = 4,
+          color = "#4361ee",
+          size = 1.5
+        )
+      )
+    )
+  ),
+  
+  # Tab 4: Key Regions Summary (Figure 3)
   tabPanel(
     "Key Regions Summary",
     div(
@@ -643,7 +666,83 @@ server <- function(input, output, session) {
     return(result)
   })
   
-  # ========== Tab 3: Key Regions Summary (your Figure 3) ==========
+  # ========== Tab 3: Spending Efficiency for High-Spending Regions ==========
+  
+  output$spending_efficiency_plot <- renderPlotly({
+    # Prepare data with log spending and efficiency calculation
+    regions_efficiency <- data %>%
+      mutate(
+        log_spend = log10(spendingPerPupil)
+      )
+    
+    # Fit frontier model using all regions
+    frontier_lm <- lm(completionRate ~ log_spend, data = regions_efficiency)
+    
+    regions_efficiency <- regions_efficiency %>%
+      mutate(
+        fitted = predict(frontier_lm),
+        efficiency = completionRate - fitted  # >0 means more efficient than expected
+      )
+    
+    # Color mapping (use colors from JSON)
+    cols <- regions_efficiency$color
+    names(cols) <- regions_efficiency$name
+    
+    # Create ggplot
+    p_q3_simple <- ggplot(
+      regions_efficiency,
+      aes(
+        x = spendingPerPupil,
+        y = completionRate
+      )
+    ) +
+      geom_smooth(
+        method = "lm",
+        se = FALSE,
+        color = "#2c7a3f",
+        size = 1.1,
+        linetype = "solid"
+      ) +
+      geom_point(
+        aes(
+          colour = name,
+          text = paste0(
+            "Region: ", name,
+            "<br>Efficiency: ",
+            ifelse(efficiency >= 0, "+", ""),
+            round(efficiency, 1), " pp vs expected"
+          )
+        ),
+        size = 4,
+        alpha = 0.9
+      ) +
+      scale_x_log10(
+        name = "Spending per pupil (USD, log scale)",
+        labels = dollar_format(prefix = "$")
+      ) +
+      scale_y_continuous(
+        name = "Primary completion rate (%)",
+        limits = c(50, 100),
+        labels = function(x) paste0(x, "%")
+      ) +
+      scale_colour_manual(values = cols, name = "Region") +
+      ggtitle(
+        "Q3: Comparing learning outcomes at similar spending levels",
+        subtitle = "Each point is a region; efficiency is shown in the hover as the gap vs expected completion."
+      ) +
+      theme_minimal(base_size = 12) +
+      theme(
+        panel.grid.minor = element_blank(),
+        axis.title = element_text(face = "bold"),
+        plot.title = element_text(face = "bold", size = 16)
+      )
+    
+    # Convert to plotly with hover
+    ggplotly(p_q3_simple, tooltip = "text") %>%
+      layout(hovermode = "closest")
+  })
+  
+  # ========== Tab 4: Key Regions Summary (your Figure 3) ==========
   
   # Reactive data for Tab 3 only
   kpi_data <- reactive({
