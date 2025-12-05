@@ -130,6 +130,33 @@ ui <- navbarPage(
         )
       )
     )
+  ),
+  
+  # Tab 3: Key Regions Summary (Figure 3)
+  tabPanel(
+    "Key Regions Summary",
+    div(
+      class = "fade-in",
+      titlePanel("Key Regions Summary"),
+      p("A compact KPI card panel that summarizes the current selection from Figure 1: who invests the most, where learning deprivation is most acute, and where completion/attainment is weakest."),
+      fluidRow(
+        column(
+          width = 4,
+          h3("Highest Expenditure"),
+          plotOutput("kpi_spend", height = "260px")
+        ),
+        column(
+          width = 4,
+          h3("Highest Learning Poverty"),
+          plotOutput("kpi_poverty", height = "260px")
+        ),
+        column(
+          width = 4,
+          h3("Lowest Completion"),
+          plotOutput("kpi_completion", height = "260px")
+        )
+      )
+    )
   )
 )
 
@@ -575,6 +602,109 @@ server <- function(input, output, session) {
     return(result)
   })
   
+  # ========== Tab 3: Key Regions Summary (your Figure 3) ==========
+  
+  # Highest Expenditure
+  output$kpi_spend <- renderPlot({
+    d <- filtered_data() |>
+      filter(!is.na(spendingPerPupil)) |>
+      arrange(desc(spendingPerPupil)) |>
+      slice_head(n = 5)
+    req(nrow(d) > 0)
+    
+    d <- d |>
+      mutate(name = factor(name, levels = rev(name)))
+    
+    ggplot(d, aes(x = spendingPerPupil, y = name, fill = color)) +
+      geom_col(width = 0.6) +
+      scale_fill_identity() +
+      geom_text(
+        aes(label = scales::comma(spendingPerPupil, accuracy = 1)),
+        hjust = -0.15,             
+        color = "black",
+        size = 2.5,
+        fontface = "bold"
+      ) +
+      scale_x_continuous(
+        labels = scales::comma,
+        expand = expansion(mult = c(0, 0.30)) 
+      ) +
+      labs(x = "Spending per pupil (USD)", y = NULL) +
+      theme_minimal(base_size = 11) +
+      theme(
+        panel.grid.major.y = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.title.y = element_blank(),
+        plot.margin = margin(5, 30, 5, 5) 
+      )
+  })
+  
+  
+  # Highest Learning Poverty
+  output$kpi_poverty <- renderPlot({
+    d <- filtered_data() |>
+      filter(!is.na(learningPoverty)) |>
+      arrange(desc(learningPoverty)) |>
+      slice_head(n = 5)
+    req(nrow(d) > 0)
+    
+    d <- d |>
+      mutate(name = factor(name, levels = rev(name)))
+    
+    ggplot(d, aes(x = learningPoverty, y = name, fill = color)) +
+      geom_col(width = 0.6) +
+      scale_fill_identity() +
+      geom_text(
+        aes(label = paste0(round(learningPoverty, 1), "%")),
+        hjust = 0.98, color = "white", size = 4, fontface = "bold"
+      ) +
+      scale_x_continuous(
+        limits = c(0, 100),
+        labels = function(x) paste0(x, "%"),
+        expand = expansion(mult = c(0, 0.15))
+      ) +
+      labs(x = "Learning poverty (%)", y = NULL) +
+      theme_minimal(base_size = 11) +
+      theme(
+        panel.grid.major.y = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.title.y = element_blank(),
+        plot.margin = margin(5, 20, 5, 5)
+      )
+  })
+  
+  # Lowest Completion
+  output$kpi_completion <- renderPlot({
+    d <- filtered_data() |>
+      filter(!is.na(completionRate)) |>
+      arrange(completionRate) |>
+      slice_head(n = 5)
+    req(nrow(d) > 0)
+    
+    d <- d |>
+      mutate(name = factor(name, levels = rev(name)))
+    
+    ggplot(d, aes(x = completionRate, y = name, fill = color)) +
+      geom_col(width = 0.6) +
+      scale_fill_identity() +
+      geom_text(
+        aes(label = paste0(round(completionRate, 1), "%")),
+        hjust = 0.98, color = "white", size = 4, fontface = "bold"
+      ) +
+      scale_x_continuous(
+        limits = c(0, 100),
+        labels = function(x) paste0(x, "%"),
+        expand = expansion(mult = c(0, 0.15))
+      ) +
+      labs(x = "Completion rate (%)", y = NULL) +
+      theme_minimal(base_size = 11) +
+      theme(
+        panel.grid.major.y = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.title.y = element_blank(),
+        plot.margin = margin(5, 20, 5, 5)
+      )
+  })
 }
 
 shinyApp(ui = ui, server = server)
