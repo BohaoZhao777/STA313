@@ -144,12 +144,12 @@ ui <- navbarPage(
   ),
   
   # Tab 3: Spending Efficiency
-  tabPanel(
-    "Spending Efficiency",
-    div(
-      class = "fade-in",
-      titlePanel("Spending efficiency by region"),
-      p("Blue = learning results rank higher than spending rank; Red = opposite"),
+      tabPanel(
+        "Spending Efficiency",
+        div(
+          class = "fade-in",
+          titlePanel("Spending efficiency by region"),
+          p("Blue = learning results rank higher than spending rank; Red = opposite"),
       mainPanel(
         width = 12,
         withSpinner(
@@ -235,8 +235,8 @@ server <- function(input, output, session) {
   # ========== Tab 1: Access vs Completion (Li Qi) ==========
   filtered_data <- reactive({
     d <- data[data$incomeLevel %in% input$incomeLevel, ]
-    d <- d[d$spendingPerPupil >= input$spendingRange[1] &
-             d$spendingPerPupil <= input$spendingRange[2], ]
+    d <- d[d$spendingPerPupil >= input$spendingRange[1] & 
+           d$spendingPerPupil <= input$spendingRange[2], ]
     d
   })
 
@@ -268,8 +268,8 @@ server <- function(input, output, session) {
       scale_color_identity() +
       scale_size_continuous(
         range  = c(4, 20),
-        breaks = c(500, 5000, 10000),
-        labels = c("$500", "$5.0k", "$10.0k"),
+                            breaks = c(500, 5000, 10000),
+                            labels = c("$500", "$5.0k", "$10.0k"),
         name   = "Spending per pupil:"
       ) +
       scale_x_continuous(
@@ -815,12 +815,10 @@ server <- function(input, output, session) {
       ) +
       coord_quickmap() +
       labs(
-        title = "Spending efficiency by region",
         subtitle = "Blue = learning results rank higher than spending rank; Red = opposite"
       ) +
       theme_void(base_size = 12) +
       theme(
-        plot.title = element_text(face = "bold", size = 16, hjust = 0.5),
         plot.subtitle = element_text(hjust = 0.5),
         legend.position = "right"
       )
