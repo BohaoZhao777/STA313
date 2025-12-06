@@ -11,6 +11,9 @@ if (!require("shinyjs", quietly = TRUE)) {
 if (!require("ggrepel", quietly = TRUE)) {
   install.packages("ggrepel", repos = "https://cloud.r-project.org")
 }
+if (!require("maps", quietly = TRUE)) {
+  install.packages("maps", repos = "https://cloud.r-project.org")
+}
 
 library(shiny)
 library(jsonlite)
@@ -21,6 +24,7 @@ library(plotly)
 library(shinycssloaders)
 library(shinyjs)
 library(ggrepel)
+library(maps)
 
 ## ---------- Read JSON: region-level data ----------
 
@@ -78,28 +82,28 @@ ui <- navbarPage(
   # Tab 1: Access vs Completion (Li Qi)
   tabPanel(
     "Access vs Completion",
-    titlePanel("Access vs Completion"),
-    p("Do higher out-of-school rates coincide with lower completion? How strong is the relationship?"),
+  titlePanel("Access vs Completion"),
+  p("Do higher out-of-school rates coincide with lower completion? How strong is the relationship?"),
+  
+  sidebarLayout(
+    sidebarPanel(
+      width = 3,
+      checkboxGroupInput("incomeLevel", "Filter by Income Level:",
+                         choices = unique(data$incomeLevel),
+                         selected = unique(data$incomeLevel)),
+      sliderInput("spendingRange", "Spending per Pupil ($):",
+                  min = 0, max = 15000,
+                  value = c(0, 15000), step = 500,
+                  pre = "$", sep = ","),
+      checkboxInput("showRegression", "Show Regression Line", value = TRUE),
+      checkboxInput("showLabels", "Show Region Labels", value = TRUE)
+    ),
     
-    sidebarLayout(
-      sidebarPanel(
-        width = 3,
-        checkboxGroupInput("incomeLevel", "Filter by Income Level:",
-                           choices = unique(data$incomeLevel),
-                           selected = unique(data$incomeLevel)),
-        sliderInput("spendingRange", "Spending per Pupil ($):",
-                    min = 0, max = 15000,
-                    value = c(0, 15000), step = 500,
-                    pre = "$", sep = ","),
-        checkboxInput("showRegression", "Show Regression Line", value = TRUE),
-        checkboxInput("showLabels", "Show Region Labels", value = TRUE)
-      ),
-      
-      mainPanel(
-        width = 9,
-        plotOutput("scatterPlot", height = "500px")
-      )
+    mainPanel(
+      width = 9,
+      plotOutput("scatterPlot", height = "500px")
     )
+  )
   ),
   
   # Tab 2: Spending vs Learning Poverty
@@ -144,8 +148,8 @@ ui <- navbarPage(
     "Spending Efficiency",
     div(
       class = "fade-in",
-      titlePanel("Comparing learning outcomes at similar spending levels"),
-      p("Each point is a region; efficiency is shown in the hover as the gap vs expected completion."),
+      titlePanel("Spending efficiency by region"),
+      p("Blue = learning results rank higher than spending rank; Red = opposite"),
       mainPanel(
         width = 12,
         withSpinner(
@@ -227,7 +231,7 @@ ui <- navbarPage(
 ## ---------- Shiny server ----------
 
 server <- function(input, output, session) {
-  
+
   # ========== Tab 1: Access vs Completion (Li Qi) ==========
   filtered_data <- reactive({
     d <- data[data$incomeLevel %in% input$incomeLevel, ]
@@ -235,7 +239,7 @@ server <- function(input, output, session) {
              d$spendingPerPupil <= input$spendingRange[2], ]
     d
   })
-  
+
   output$scatterPlot <- renderPlot({
     d <- filtered_data()
     if (nrow(d) < 2) return(NULL)
@@ -705,76 +709,124 @@ server <- function(input, output, session) {
   # ========== Tab 3: Spending Efficiency for High-Spending Regions ==========
   
   output$spending_efficiency_plot <- renderPlotly({
-    # Prepare data with log spending and efficiency calculation
-    regions_efficiency <- data %>%
+    # Prepare data - select needed columns
+    regions_eff <- data %>%
+      select(name, spendingPerPupil, completionRate) %>%
       mutate(
-        log_spend = log10(spendingPerPupil)
+        spend_rank = dense_rank(desc(spendingPerPupil)),
+        outcome_rank = dense_rank(desc(completionRate)),
+        efficiency = spend_rank - outcome_rank
       )
     
-    # Fit frontier model using all regions
-    frontier_lm <- lm(completionRate ~ log_spend, data = regions_efficiency)
-    
-    regions_efficiency <- regions_efficiency %>%
+    # Assign coordinates based on region name keywords using case_when
+    regions_with_coords <- regions_eff %>%
       mutate(
-        fitted = predict(frontier_lm),
-        efficiency = completionRate - fitted  # >0 means more efficient than expected
+        lon = case_when(
+          grepl("North America", name, ignore.case = TRUE)                 ~ -100,
+          grepl("Latin America", name, ignore.case = TRUE) |
+            grepl("Caribbean", name, ignore.case = TRUE)                   ~  -70,
+          grepl("Western Europe", name, ignore.case = TRUE)                ~   10,
+          grepl("Europe and Central Asia", name, ignore.case = TRUE)       ~   60,
+          grepl("East Asia and Pacific", name, ignore.case = TRUE)         ~  120,
+          grepl("South Asia", name, ignore.case = TRUE)                    ~   75,
+          grepl("Middle East and North Africa", name, ignore.case = TRUE)  ~   30,
+          grepl("Eastern and Southern Africa", name, ignore.case = TRUE)   ~   35,
+          grepl("West and Central Africa", name, ignore.case = TRUE)       ~   10,
+          grepl("Sub-Saharan Africa", name, ignore.case = TRUE)            ~   25,
+          grepl("World", name, ignore.case = TRUE)                         ~    0,
+          TRUE                                                             ~    NA_real_
+        ),
+        lat = case_when(
+          grepl("North America", name, ignore.case = TRUE)                 ~   45,
+          grepl("Latin America", name, ignore.case = TRUE) |
+            grepl("Caribbean", name, ignore.case = TRUE)                   ~  -15,
+          grepl("Western Europe", name, ignore.case = TRUE)                ~   50,
+          grepl("Europe and Central Asia", name, ignore.case = TRUE)       ~   50,
+          grepl("East Asia and Pacific", name, ignore.case = TRUE)         ~   10,
+          grepl("South Asia", name, ignore.case = TRUE)                    ~   20,
+          grepl("Middle East and North Africa", name, ignore.case = TRUE)  ~   25,
+          grepl("Eastern and Southern Africa", name, ignore.case = TRUE)   ~  -15,
+          grepl("West and Central Africa", name, ignore.case = TRUE)       ~    5,
+          grepl("Sub-Saharan Africa", name, ignore.case = TRUE)            ~   -5,
+          grepl("World", name, ignore.case = TRUE)                         ~    0,
+          TRUE                                                             ~    NA_real_
+        )
       )
     
-    # Color mapping (use colors from JSON)
-    cols <- regions_efficiency$color
-    names(cols) <- regions_efficiency$name
-    
-    # Create ggplot
-    p_q3_simple <- ggplot(
-      regions_efficiency,
-      aes(
-        x = spendingPerPupil,
-        y = completionRate
+    # Filter out World Average, keep only 9 regions, and add short labels
+    regions_plot <- regions_with_coords %>%
+      filter(!grepl("World", name, ignore.case = TRUE)) %>%
+      filter(!is.na(lon), !is.na(lat)) %>%
+      mutate(
+        label = case_when(
+          grepl("Eastern and Southern Africa", name)  ~ "E&SA",
+          grepl("West and Central Africa", name)      ~ "W&CA",
+          grepl("South Asia", name)                   ~ "SA",
+          grepl("Middle East and North Africa", name) ~ "MENA",
+          grepl("Latin America", name)                ~ "LAC",
+          grepl("East Asia and Pacific", name)        ~ "EAP",
+          grepl("Europe and Central Asia", name)      ~ "ECA",
+          grepl("Western Europe", name)               ~ "WE",
+          grepl("North America", name)                ~ "NA",
+          TRUE                                       ~ name
+        )
       )
-    ) +
-      geom_smooth(
-        method = "lm",
-        se = FALSE,
-        color = "#2c7a3f",
-        size = 1.1,
-        linetype = "solid"
+    
+    # Load world map using maps package
+    world_df <- map_data("world")
+    
+    # Create map visualization
+    p_map <- ggplot() +
+      geom_polygon(
+        data = world_df,
+        aes(x = long, y = lat, group = group),
+        fill = "grey95", colour = "white", size = 0.2
       ) +
       geom_point(
+        data = regions_plot,
         aes(
-          colour = name,
+          x = lon, y = lat,
+          fill = efficiency,
           text = paste0(
             "Region: ", name,
+            "<br>Spending rank: ", spend_rank,
+            "<br>Completion rank: ", outcome_rank,
             "<br>Efficiency: ",
-            ifelse(efficiency >= 0, "+", ""),
-            round(efficiency, 1), " pp vs expected"
+            ifelse(efficiency > 0, "+", ""),
+            efficiency
           )
         ),
-        size = 4,
-        alpha = 0.9
+        size = 6,
+        shape = 21,          # Hollow circle with outline
+        colour = "black",    # Outline color
+        stroke = 0.5
       ) +
-      scale_x_log10(
-        name = "Spending per pupil (USD, log scale)",
-        labels = dollar_format(prefix = "$")
+      geom_text(
+        data = regions_plot,
+        aes(x = lon, y = lat, label = label),
+        vjust = -1, size = 3
       ) +
-      scale_y_continuous(
-        name = "Primary completion rate (%)",
-        limits = c(50, 100),
-        labels = function(x) paste0(x, "%")
+      scale_fill_gradient2(
+        low = "#d73027",   # Low efficiency (spend more, learn less) = red
+        mid = "white",     # Efficiency ≈ 0 = white, but with black outline so it's visible
+        high = "#4575b4",  # High efficiency (spend less, learn more) = blue
+        midpoint = 0,
+        name = "Efficiency score\n(spending rank − outcome rank)"
       ) +
-      scale_colour_manual(values = cols, name = "Region") +
-      ggtitle(
-        "Q3: Comparing learning outcomes at similar spending levels",
-        subtitle = "Each point is a region; efficiency is shown in the hover as the gap vs expected completion."
+      coord_quickmap() +
+      labs(
+        title = "Spending efficiency by region",
+        subtitle = "Blue = learning results rank higher than spending rank; Red = opposite"
       ) +
-      theme_minimal(base_size = 12) +
+      theme_void(base_size = 12) +
       theme(
-        panel.grid.minor = element_blank(),
-        axis.title = element_text(face = "bold"),
-        plot.title = element_text(face = "bold", size = 16)
+        plot.title = element_text(face = "bold", size = 16, hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5),
+        legend.position = "right"
       )
     
     # Convert to plotly with hover
-    ggplotly(p_q3_simple, tooltip = "text") %>%
+    ggplotly(p_map, tooltip = "text") %>%
       layout(hovermode = "closest")
   })
   
